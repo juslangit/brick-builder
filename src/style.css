@@ -195,9 +195,18 @@ body.dark .hint { background: rgba(255,255,255,.92); color: var(--ink); }
 @media (max-width: 760px) {
   main, main.booklet-left { grid-template-columns: 1fr; grid-template-rows: 1fr 40%; }
   main.booklet-left #booklet { order: 0; }
-  .modes button { padding: 8px 10px; font-size: 14px; }
+  .top { gap: 6px; padding: 0 8px; }
+  .modes { flex: 1; min-width: 0; }
+  .modes button { padding: 8px 6px; font-size: 13px; flex: 1; white-space: normal; line-height: 1.1; }
+  button.icon { width: 40px; height: 40px; font-size: 20px; flex: none; }
   .brand { display: none; }
-  .progress { display: none; }
+  .progress, #bag-select, #btn-frame { display: none; }
+  .stepbar { left: 8px; right: 8px; bottom: 8px; gap: 8px; padding: 8px; justify-content: space-between; }
+  .stepbar button.big { width: 52px; height: 48px; }
+  .stepnum { font-size: 16px; }
+  .stepnum input { width: 64px; }
+  .tray { left: 8px; right: 8px; bottom: 76px; }
+  .hint { font-size: 14px; white-space: normal; text-align: center; width: max-content; }
 }
 
 dialog .about { grid-column: 1 / -1; background: #f3f6fa; border-radius: 12px; padding: 4px 16px; font-weight: 600; font-size: 15px; line-height: 1.45; }
