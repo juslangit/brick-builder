@@ -6,15 +6,23 @@ async function fetchBuffer(url, onProgress) {
   if (!res.ok) throw new Error(`${url}: ${res.status}`);
   const total = Number(res.headers.get('content-length')) || 0;
   if (!res.body || !total) return res.arrayBuffer();
+  // content-length can be the compressed size (GitHub Pages gzips), so collect chunks of any size
+  // and use it only for the progress bar
   const reader = res.body.getReader();
-  const out = new Uint8Array(total);
+  const chunks = [];
   let got = 0;
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
-    out.set(value, got);
+    chunks.push(value);
     got += value.length;
-    onProgress?.(got / total);
+    onProgress?.(Math.min(0.99, got / total));
+  }
+  const out = new Uint8Array(got);
+  let at = 0;
+  for (const c of chunks) {
+    out.set(c, at);
+    at += c.length;
   }
   return out.buffer;
 }
