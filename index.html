@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Brick Builder</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect x=%222%22 y=%2210%22 width=%2228%22 height=%2218%22 rx=%223%22 fill=%22%23e3000b%22/%3E%3Crect x=%226%22 y=%225%22 width=%228%22 height=%226%22 rx=%221.5%22 fill=%22%23e3000b%22/%3E%3Crect x=%2218%22 y=%225%22 width=%228%22 height=%226%22 rx=%221.5%22 fill=%22%23e3000b%22/%3E%3C/svg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="brand"><span class="stud"></span><span class="stud"></span>Brick Builder</div>
+      <div class="setname"><b id="set-number">75192</b> <span id="set-name">Millennium Falcon</span> <span class="muted" id="set-pieces"></span></div>
+      <div class="modes" role="tablist" aria-label="Assembly mode">
+        <button data-mode="advance" role="tab">Click to advance</button>
+        <button data-mode="pick" role="tab">Pick &amp; place</button>
+        <button data-mode="free" role="tab">Free build</button>
+      </div>
+      <button class="icon" id="btn-booklet" title="Show or hide the booklet (B)">📖</button>
+      <button class="icon" id="btn-settings" title="Settings">⚙︎</button>
+    </header>
+
+    <main id="main" class="booklet-right">
+      <section id="stage">
+        <div id="hint" class="hint"></div>
+        <div id="tray" class="tray" hidden>
+          <div class="tray-head">
+            <div class="tabs" id="tray-tabs">
+              <button data-tab="step" class="on">This step</button>
+              <button data-tab="all">All parts</button>
+            </div>
+            <input id="tray-search" type="search" placeholder="Search parts — name or number" hidden />
+            <div id="palette" class="palette" hidden></div>
+          </div>
+          <div id="tray-items" class="tray-items"></div>
+        </div>
+        <nav class="stepbar">
+          <button class="big" id="btn-prev" title="Previous step (←)">◀</button>
+          <select id="bag-select" title="Jump to a bag"></select>
+          <div class="stepnum">
+            Step <input id="step-input" type="number" min="1" /> <span>of <b id="step-total"></b></span>
+          </div>
+          <button class="big go" id="btn-next" title="Next step (→ or Space)">▶</button>
+          <div class="progress"><div id="progress-fill"></div><span id="progress-text"></span></div>
+          <button class="icon small" id="btn-frame" title="See the whole model (F)">⤢</button>
+        </nav>
+      </section>
+
+      <aside id="booklet">
+        <div class="bk-head">
+          <button id="bk-prev" title="Previous page">◀</button>
+          <div class="bk-title">Booklet <span id="bk-page"></span></div>
+          <button id="bk-next" title="Next page">▶</button>
+        </div>
+        <div id="bk-body" class="bk-body"></div>
+        <div class="bk-foot">
+          <button id="bk-follow" class="ghost-btn" hidden>Back to my step</button>
+          <button id="bk-build" class="ghost-btn" hidden>Build from this page</button>
+        </div>
+      </aside>
+    </main>
+
+    <div id="toast" class="toast"></div>
+
+    <dialog id="settings">
+      <form method="dialog">
+        <h2>Settings</h2>
+        <label>Set
+          <select name="set"><option value="75192">75192 Millennium Falcon (UCS)</option></select>
+        </label>
+        <label>Assembly mode
+          <select name="mode">
+            <option value="advance">Click to advance — each step drops in</option>
+            <option value="pick">Pick &amp; place — drag each part to its spot</option>
+            <option value="free">Free build — place any part anywhere</option>
+          </select>
+        </label>
+        <label>Booklet
+          <select name="booklet"><option value="right">On the right</option><option value="left">On the left</option><option value="hidden">Hidden</option></select>
+        </label>
+        <label>Where parts go (ghost hints)
+          <select name="hints"><option value="always">Always show</option><option value="holding">Only while holding a part</option><option value="off">Never — find it yourself</option></select>
+        </label>
+        <label>Snapping
+          <select name="snap"><option value="easy">Easy — snaps from far away</option><option value="normal">Normal</option><option value="hard">Hard — must be close</option></select>
+        </label>
+        <label>Animations
+          <select name="animation"><option value="normal">Normal</option><option value="slow">Slow</option><option value="off">Off</option></select>
+        </label>
+        <label class="check"><input type="checkbox" name="autoCamera" /> Move the camera to each new step</label>
+        <label class="check"><input type="checkbox" name="autoAdvance" /> Go to the next step when one is finished</label>
+        <label>Background
+          <select name="background"><option value="light">Light</option><option value="dark">Dark</option></select>
+        </label>
+        <label>Quality
+          <select name="quality"><option value="high">High (sharp)</option><option value="fast">Fast (for slower computers)</option></select>
+        </label>
+        <div class="row">
+          <button type="button" id="btn-reset" class="danger">Start the set again</button>
+          <button value="close" class="primary">Done</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div id="loading">
+      <div class="load-box">
+        <div class="brick-anim"><span></span><span></span><span></span></div>
+        <div id="load-text">Opening the box…</div>
+        <div class="load-bar"><div id="load-fill"></div></div>
+      </div>
+    </div>
+
+    <div id="finished" hidden>
+      <div class="fin-box">
+        <h1>Finished!</h1>
+        <p>All <b id="fin-count"></b> pieces are in. Spin it round and enjoy it.</p>
+        <button id="fin-close" class="primary">Look at it</button>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

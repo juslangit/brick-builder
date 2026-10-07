@@ -1,0 +1,8 @@
+.env
+.DS_Store
+node_modules/
+# Mecabricks export of 75192 — another user's model; not ours to redistribute (D-004)
+data/mecabricks-75192/
+public/sets/
+dist/
+docs/index.html
