@@ -8,3 +8,4 @@ dist/
 docs/index.html
 .venv/
 data/debug/
+__pycache__/
