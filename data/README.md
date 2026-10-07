@@ -2,7 +2,8 @@
 
 `mecabricks-75192/` (git-ignored) — the 75192 UCS Millennium Falcon from
 https://www.mecabricks.com/en/models/87X2RWRqjZY, captured 2026-10-07 from the
-Mecabricks editor while signed in as juslangit.
+Mecabricks editor while signed in as juslangit, with `node tools/capture_mecabricks.mjs`.
+`extras.json` (shared studs, tubes, pins) and `materials.json` (LEGO colour table) come from the same load.
 
 - `model.json` — the editor's `api/workshop/model/load` response. `data.file.objects.list`
   is a flat list; `"1"` is the kind (scene/group/part), `"0"` the child indices, `"2"` a group's
