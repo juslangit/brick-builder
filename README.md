@@ -15,13 +15,19 @@ Three ways to build, switchable at any time (top bar or Settings):
 
 ```bash
 npm install
-npm run convert     # data/mecabricks-75192 -> public/sets/75192 (needs the captured data)
+npm run convert     # data/mecabricks-75192 + LDraw -> public/sets/75192 (needs the captured data)
 npm run dev         # http://localhost:5173
 ```
 
-The model data is not in the repo: it is another Mecabricks user's model
-(https://www.mecabricks.com/en/models/87X2RWRqjZY), captured into `data/mecabricks-75192/`
-— see `data/README.md`.
+Play it at **https://juslangit.github.io/brick-builder/**.
+
+The model is [Millennium Falcon by Leewan](https://www.mecabricks.com/en/models/87X2RWRqjZY) on
+Mecabricks; its data is not in the repo (captured into `data/mecabricks-75192/`, see `data/README.md`).
+Part shapes come from the [LDraw parts library](https://www.ldraw.org) (CC BY 4.0) — Mecabricks'
+own part meshes may not be redistributed, so `tools/match_ldraw.py` lines every LDraw part up with
+the model (`data/ldraw-map.json`) and `tools/publish_web.sh` refuses to publish anything else.
+
+LEGO® is a trademark of the LEGO Group, which does not sponsor, authorise or endorse this project.
 
 ## How it is made
 

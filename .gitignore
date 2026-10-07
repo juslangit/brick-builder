@@ -6,3 +6,5 @@ data/mecabricks-75192/
 public/sets/
 dist/
 docs/index.html
+.venv/
+data/debug/

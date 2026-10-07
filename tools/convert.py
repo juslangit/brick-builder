@@ -12,6 +12,9 @@ import json, math, os, re, struct, sys, zipfile
 from collections import Counter, defaultdict
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# 'ldraw' (default, publishable): part shapes from the LDraw library, placed by data/ldraw-map.json.
+# 'mecabricks': Mecabricks' own meshes — for local comparison only, never to be published (D-008).
+SOURCE = 'mecabricks' if '--mecabricks' in sys.argv else 'ldraw'
 SRC = os.path.join(ROOT, 'data', 'mecabricks-75192')
 OUT = os.path.join(ROOT, 'public', 'sets', '75192')
 
@@ -118,31 +121,79 @@ def tube_radius(conf):
             r = max(r, base * max(f.get('scale', [1, 1])))
     return r
 
+def crease_normals(pos, idx, crease=35):
+    """Split vertices where faces meet at more than `crease` degrees: hard edges on bricks,
+    smooth shading on round parts."""
+    cos_c = math.cos(math.radians(crease))
+    fn = []
+    for i in range(0, len(idx), 3):
+        a, b, c = (pos[3*idx[i+k]:3*idx[i+k]+3] for k in range(3))
+        u = [b[k]-a[k] for k in range(3)]; v = [c[k]-a[k] for k in range(3)]
+        n = [u[1]*v[2]-u[2]*v[1], u[2]*v[0]-u[0]*v[2], u[0]*v[1]-u[1]*v[0]]
+        l = math.sqrt(sum(x*x for x in n)) or 1
+        fn.append((n[0]/l, n[1]/l, n[2]/l, l))      # unit normal and twice the area
+    faces_of = defaultdict(list)
+    for f in range(len(fn)):
+        for k in range(3): faces_of[idx[3*f+k]].append(f)
+    out_pos, out_nor, out_idx, seen = [], [], [], {}
+    for f in range(len(fn)):
+        nf = fn[f]
+        for k in range(3):
+            vi = idx[3*f+k]
+            acc = [0.0, 0.0, 0.0]
+            for g in faces_of[vi]:
+                ng = fn[g]
+                if ng[0]*nf[0] + ng[1]*nf[1] + ng[2]*nf[2] >= cos_c:
+                    for j in range(3): acc[j] += ng[j] * ng[3]
+            l = math.sqrt(sum(x*x for x in acc)) or 1
+            n = (round(acc[0]/l, 2), round(acc[1]/l, 2), round(acc[2]/l, 2))
+            key = (vi, n)
+            j = seen.get(key)
+            if j is None:
+                j = seen[key] = len(out_pos) // 3
+                out_pos.extend(pos[3*vi:3*vi+3]); out_nor.extend(n)
+            out_idx.append(j)
+    return out_pos, out_nor, out_idx
+
+
+def use_ldraw(types, meshes):
+    """Swap every Mecabricks mesh for its LDraw part, turned and moved onto the same spot."""
+    from ldraw import Library
+    mp = json.load(open(os.path.join(ROOT, 'data', 'ldraw-map.json')))
+    lib = Library()
+    missing = [t['ref'] for t in types if not t['flex'] and str(t['id']) not in mp]
+    if missing:
+        sys.exit(f'no LDraw match for {missing} — run tools/match_ldraw.py')
+    done = {}
+    for i, t in enumerate(types):
+        if t['flex']:
+            continue
+        m = mp[str(t['id'])]
+        key = (m['ldraw'], tuple(m['rot']), tuple(m['pos']))
+        if key not in done:
+            lpos, lidx = lib.mesh(m['ldraw'])
+            R, p = m['rot'], m['pos']
+            tp = []
+            for j in range(0, len(lpos), 3):
+                x, y, z = lpos[j:j+3]
+                tp += [R[0]*x + R[1]*y + R[2]*z + p[0], R[3]*x + R[4]*y + R[5]*z + p[1], R[6]*x + R[7]*y + R[8]*z + p[2]]
+            done[key] = list(crease_normals(tp, lidx))
+        meshes[i] = done[key]
+        t['ldraw'] = m['ldraw']
+
+
 # ---------------------------------------------------------------- steps
 
 RANGE = re.compile(r'steps?\s*(\d+)(?:\s*-\s*(\d+))?', re.I)
 MAX_PER_STEP = 8
 
 
-def main():
-    model = json.load(open(os.path.join(SRC, 'model.json')))['data']
-    mats = json.load(open(os.path.join(SRC, 'materials.json')))['data']
-    extras_src = json.load(open(os.path.join(SRC, 'extras.json')))
-    z = zipfile.ZipFile(os.path.join(SRC, 'geometries.zip'))
+def meca_types(model, z, extras_src):
+    """Every part type in the model with its Mecabricks mesh (studs, tubes and pins baked in)."""
     lib = model['library']['official']
     L = model['file']['objects']['list']
-
-    colors = {}
-    for grp in mats:
-        for m in grp['materials']:
-            colors[str(m['reference'])] = {'name': m['name'], 'rgb': '#' + m['rgb'].lower(),
-                                           'kind': grp['name'], 'legacy': m.get('legacy', False)}
-
     extras = {f'{cat}:{k}': parse_geo(v) for cat in ('knobs', 'tubes', 'pins') for k, v in extras_src[cat].items()}
-
-    # ---- part types
     type_ids = sorted({str(o['5']) for o in L if o['1'] == 'part'}, key=int)
-    tindex = {t: i for i, t in enumerate(type_ids)}
     meshes, types, confs = [], [], {}
     for t in type_ids:
         x = lib[t]['extra']
@@ -165,10 +216,32 @@ def main():
                     if key in extras:
                         append(mesh, extras[key], e['transform']['quaternion'], e['transform']['position'])
         else:
-            mesh = [[], [], []]   # flexible: one mesh per placed part, built below
+            mesh = [[], [], []]   # flexible: one mesh per placed part, built in main()
         meshes.append(mesh)
         types.append({'id': int(t), 'ref': x['reference'], 'name': lib[t]['name'],
                       'flex': x['type'] == 'flexible'})
+    return type_ids, types, meshes, confs
+
+
+def main():
+    model = json.load(open(os.path.join(SRC, 'model.json')))['data']
+    mats = json.load(open(os.path.join(SRC, 'materials.json')))['data']
+    extras_src = json.load(open(os.path.join(SRC, 'extras.json')))
+    z = zipfile.ZipFile(os.path.join(SRC, 'geometries.zip'))
+    lib = model['library']['official']
+    L = model['file']['objects']['list']
+
+    colors = {}
+    for grp in mats:
+        for m in grp['materials']:
+            colors[str(m['reference'])] = {'name': m['name'], 'rgb': '#' + m['rgb'].lower(),
+                                           'kind': grp['name'], 'legacy': m.get('legacy', False)}
+
+    # ---- part types
+    type_ids, types, meshes, confs = meca_types(model, z, extras_src)
+    tindex = {t: i for i, t in enumerate(type_ids)}
+    if SOURCE == 'ldraw':
+        use_ldraw(types, meshes)
 
     # ---- parts
     def fallback_colour(name):

@@ -199,3 +199,8 @@ body.dark .hint { background: rgba(255,255,255,.92); color: var(--ink); }
   .brand { display: none; }
   .progress { display: none; }
 }
+
+dialog .about { grid-column: 1 / -1; background: #f3f6fa; border-radius: 12px; padding: 4px 16px; font-weight: 600; font-size: 15px; line-height: 1.45; }
+dialog .about h3 { margin: 10px 0 0; font-weight: 900; }
+dialog .about a { color: var(--blue); }
+.load-credit { font-size: 13px; font-weight: 700; color: rgba(0,0,0,.55); margin-top: 18px; max-width: 520px; }
