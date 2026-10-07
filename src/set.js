@@ -35,12 +35,17 @@ export async function loadSet(id, onProgress) {
   ]);
 
   const geometries = json.types.map((t) => {
-    const [po, n, no, io, ni] = t.g;
+    const [po, n, no, io, ni, co = -1] = t.g;
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(bin, po, n * 3), 3));
     g.setIndex(new THREE.BufferAttribute(new Uint32Array(bin, io, ni), 1));
     if (no >= 0) g.setAttribute('normal', new THREE.BufferAttribute(new Int8Array(bin, no, n * 3), 3, true));
     else if (n) g.computeVertexNormals();
+    // printed parts: RGBA per vertex, alpha 0 = the part's own colour (see Viewer.geoFor)
+    if (co >= 0) {
+      g.setAttribute('print', new THREE.BufferAttribute(new Uint8Array(bin, co, n * 4), 4));
+      g.userData.printed = true;
+    }
     g.computeBoundingBox();
     g.computeBoundingSphere();
     return g;

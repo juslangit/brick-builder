@@ -22,6 +22,18 @@ def det3(m):
     return a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
 
 
+def load_colours(root=LDRAW):
+    """LDraw colour code -> '#rrggbb', from LDConfig.ldr."""
+    table = {}
+    path = os.path.join(root, 'LDConfig.ldr')
+    if os.path.exists(path):
+        for line in open(path, encoding='utf-8', errors='replace'):
+            t = line.split()
+            if len(t) > 6 and t[1] == '!COLOUR' and 'CODE' in t and 'VALUE' in t:
+                table[int(t[t.index('CODE') + 1])] = t[t.index('VALUE') + 1].lower()
+    return table
+
+
 class Library:
     def __init__(self, root=LDRAW, extra=UNOFFICIAL):
         self.root = root
@@ -54,7 +66,9 @@ class Library:
         return first[2:].strip() if first.startswith('0 ') else first
 
     def triangles(self, name):
-        """Triangles of a file in its own LDU frame, wound CCW (outward). Cached per file."""
+        """Triangles (p0, p1, p2, colour) of a file in its own LDU frame, wound CCW (outward).
+        Colour 16 is the part's own colour; printed areas carry their LDraw colour code.
+        Cached per file."""
         k = self.key(name)
         if k in self.cache:
             return self.cache[k]
@@ -82,6 +96,7 @@ class Library:
                             invert_next = True
                     continue
                 if t[0] == '1' and len(t) >= 15:
+                    col = int(t[1]) if t[1].lstrip('-').isdigit() else (int(t[1], 16) if t[1].startswith('0x') else 16)
                     x, y, z = map(float, t[2:5])
                     m = list(map(float, t[5:14]))
                     sub = ' '.join(t[14:])
@@ -89,34 +104,38 @@ class Library:
                     invert_next = False
                     for tri in self.triangles(sub):
                         pts = []
-                        for (px, py, pz) in tri:
+                        for (px, py, pz) in tri[:3]:
                             pts.append((m[0] * px + m[1] * py + m[2] * pz + x,
                                         m[3] * px + m[4] * py + m[5] * pz + y,
                                         m[6] * px + m[7] * py + m[8] * pz + z))
-                        tris.append(tuple(pts) if not flip else (pts[0], pts[2], pts[1]))
+                        c = tri[3] if tri[3] not in (16, 24) else col
+                        tris.append((pts[0], pts[1], pts[2], c) if not flip else (pts[0], pts[2], pts[1], c))
                     continue
                 if t[0] in ('3', '4'):
                     n = int(t[0])
+                    col = int(t[1]) if t[1].lstrip('-').isdigit() else (int(t[1], 16) if t[1].startswith('0x') else 16)
                     v = list(map(float, t[2:2 + 3 * n]))
                     pts = [tuple(v[3 * i:3 * i + 3]) for i in range(n)]
                     polys = [pts] if n == 3 else [[pts[0], pts[1], pts[2]], [pts[0], pts[2], pts[3]]]
                     for p in polys:
                         if not certified:
-                            tris.append((p[0], p[1], p[2]))
-                            tris.append((p[0], p[2], p[1]))
+                            tris.append((p[0], p[1], p[2], col))
+                            tris.append((p[0], p[2], p[1], col))
                         elif ccw:
-                            tris.append((p[0], p[1], p[2]))
+                            tris.append((p[0], p[1], p[2], col))
                         else:
-                            tris.append((p[0], p[2], p[1]))
+                            tris.append((p[0], p[2], p[1], col))
                     invert_next = False
         self.cache[k] = tris
         return tris
 
-    def mesh(self, name):
-        """Welded mesh in mm, three.js frame: (positions flat list, triangle index list)."""
-        seen, pos, idx = {}, [], []
+    def mesh(self, name, colours=False):
+        """Welded mesh in mm, three.js frame: (positions flat list, triangle index list), plus
+        with colours=True a list of one LDraw colour code per triangle (16 = the part's colour)."""
+        seen, pos, idx, cols = {}, [], [], []
         for tri in self.triangles(name):
-            for (x, y, z) in tri:
+            cols.append(tri[3])
+            for (x, y, z) in tri[:3]:
                 p = (round(x * LDU, 3), round(-y * LDU, 3), round(-z * LDU, 3))
                 j = seen.get(p)
                 if j is None:
@@ -124,7 +143,7 @@ class Library:
                     pos.extend(p)
                 idx.append(j)
         # a 180-degree turn about X is a proper rotation, so LDraw's outward winding is kept
-        return pos, idx
+        return (pos, idx, cols) if colours else (pos, idx)
 
 
 def signed_volume(pos, idx):

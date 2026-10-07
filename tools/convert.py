@@ -15,6 +15,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # 'ldraw' (default, publishable): part shapes from the LDraw library, placed by data/ldraw-map.json.
 # 'mecabricks': Mecabricks' own meshes — for local comparison only, never to be published (D-008).
 SOURCE = 'mecabricks' if '--mecabricks' in sys.argv else 'ldraw'
+# printed parts: real base colour and the LDraw print to use (see data/prints.json)
+PRINTS = {k: v for k, v in json.load(open(os.path.join(ROOT, 'data', 'prints.json'))).items() if not k.startswith('_')}
 SRC = os.path.join(ROOT, 'data', 'mecabricks-75192')
 OUT = os.path.join(ROOT, 'public', 'sets', '75192')
 
@@ -121,9 +123,10 @@ def tube_radius(conf):
             r = max(r, base * max(f.get('scale', [1, 1])))
     return r
 
-def crease_normals(pos, idx, crease=35):
+def crease_normals(pos, idx, crease=35, face_rgb=None):
     """Split vertices where faces meet at more than `crease` degrees: hard edges on bricks,
-    smooth shading on round parts."""
+    smooth shading on round parts. With face_rgb (one (r,g,b) or None per triangle) it also
+    returns RGBA bytes per vertex: alpha 0 = the part's own colour, 255 = a printed colour."""
     cos_c = math.cos(math.radians(crease))
     fn = []
     for i in range(0, len(idx), 3):
@@ -135,9 +138,10 @@ def crease_normals(pos, idx, crease=35):
     faces_of = defaultdict(list)
     for f in range(len(fn)):
         for k in range(3): faces_of[idx[3*f+k]].append(f)
-    out_pos, out_nor, out_idx, seen = [], [], [], {}
+    out_pos, out_nor, out_idx, out_col, seen = [], [], [], [], {}
     for f in range(len(fn)):
         nf = fn[f]
+        fc = face_rgb[f] if face_rgb else None
         for k in range(3):
             vi = idx[3*f+k]
             acc = [0.0, 0.0, 0.0]
@@ -147,20 +151,32 @@ def crease_normals(pos, idx, crease=35):
                     for j in range(3): acc[j] += ng[j] * ng[3]
             l = math.sqrt(sum(x*x for x in acc)) or 1
             n = (round(acc[0]/l, 2), round(acc[1]/l, 2), round(acc[2]/l, 2))
-            key = (vi, n)
+            key = (vi, n, fc)
             j = seen.get(key)
             if j is None:
                 j = seen[key] = len(out_pos) // 3
                 out_pos.extend(pos[3*vi:3*vi+3]); out_nor.extend(n)
+                out_col.extend((fc[0], fc[1], fc[2], 255) if fc else (0, 0, 0, 0))
             out_idx.append(j)
+    if face_rgb:
+        return out_pos, out_nor, out_idx, out_col
     return out_pos, out_nor, out_idx
 
 
 def use_ldraw(types, meshes):
     """Swap every Mecabricks mesh for its LDraw part, turned and moved onto the same spot."""
-    from ldraw import Library
+    from ldraw import Library, load_colours
     mp = json.load(open(os.path.join(ROOT, 'data', 'ldraw-map.json')))
+    prints = PRINTS
     lib = Library()
+    ldcol = load_colours()
+
+    def rgb(code):
+        if code >= 0x2000000:
+            v = code & 0xFFFFFF
+            return (v >> 16, (v >> 8) & 255, v & 255)
+        h = ldcol.get(code)
+        return (int(h[1:3], 16), int(h[3:5], 16), int(h[5:7], 16)) if h else None
     missing = [t['ref'] for t in types if not t['flex'] and str(t['id']) not in mp]
     if missing:
         sys.exit(f'no LDraw match for {missing} — run tools/match_ldraw.py')
@@ -169,17 +185,22 @@ def use_ldraw(types, meshes):
         if t['flex']:
             continue
         m = mp[str(t['id'])]
-        key = (m['ldraw'], tuple(m['rot']), tuple(m['pos']))
+        pr = prints.get(t['ref'], {})
+        part = pr.get('ldraw') or m['ldraw']
+        key = (part, tuple(m['rot']), tuple(m['pos']))
         if key not in done:
-            lpos, lidx = lib.mesh(m['ldraw'])
+            lpos, lidx, lcol = lib.mesh(part, colours=True)
+            face_rgb = [None if c == 16 else rgb(c) for c in lcol] if pr.get('ldraw') else None
             R, p = m['rot'], m['pos']
             tp = []
             for j in range(0, len(lpos), 3):
                 x, y, z = lpos[j:j+3]
                 tp += [R[0]*x + R[1]*y + R[2]*z + p[0], R[3]*x + R[4]*y + R[5]*z + p[1], R[6]*x + R[7]*y + R[8]*z + p[2]]
-            done[key] = list(crease_normals(tp, lidx))
+            done[key] = list(crease_normals(tp, lidx, face_rgb=face_rgb))
         meshes[i] = done[key]
-        t['ldraw'] = m['ldraw']
+        t['ldraw'] = part
+        if pr:
+            t['print'] = pr['match']
 
 
 # ---------------------------------------------------------------- steps
@@ -244,10 +265,9 @@ def main():
         use_ldraw(types, meshes)
 
     # ---- parts
-    def fallback_colour(name):
-        if 'Head' in name: return 297 if 'C-3PO' in name else 283
-        if 'Hat' in name: return 308
-        if name.startswith('Mini'): return 199
+    def fallback_colour(ref, name):
+        if ref in PRINTS: return PRINTS[ref]['color']
+        if 'Head' in name: return 283
         return 194
 
     parts, part_of_obj = [], {}
@@ -265,13 +285,14 @@ def main():
             ti = len(types) - 1
         col = o.get('8')
         decorated = col is None
-        if decorated: col = fallback_colour(lib[t]['name'])
+        if decorated: col = fallback_colour(lib[t]['extra']['reference'], lib[t]['name'])
         part_of_obj[oi] = len(parts)
         parts.append({'t': ti, 'c': col, 'm': [round(m[k], 5) for k in (0, 1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14)],
                       'd': decorated})
 
     # bounding boxes per mesh, world centres per part
-    for ti, (pos, nor, idx) in enumerate(meshes):
+    for ti, mesh in enumerate(meshes):
+        pos = mesh[0]
         if pos:
             mn = [min(pos[k::3]) for k in range(3)]; mx = [max(pos[k::3]) for k in range(3)]
         else:
@@ -457,7 +478,9 @@ def main():
     # ---- write
     os.makedirs(OUT, exist_ok=True)
     blob = bytearray(); geo = []
-    for pos, nor, idx in meshes:
+    for mesh in meshes:
+        pos, nor, idx = mesh[:3]
+        col = mesh[3] if len(mesh) > 3 else None
         n = len(pos) // 3
         po = len(blob); blob += struct.pack(f'<{len(pos)}f', *pos)
         if nor and len(nor) == len(pos):
@@ -466,7 +489,11 @@ def main():
         else:
             no = -1
         io = len(blob); blob += struct.pack(f'<{len(idx)}I', *idx)
-        geo.append([po, n, no, io, len(idx)])
+        co = -1
+        if col:
+            co = len(blob); blob += bytes(col)
+            while len(blob) % 4: blob.append(0)
+        geo.append([po, n, no, io, len(idx), co])
     for t, g in zip(types, geo): t['g'] = g
 
     used = {str(p['c']) for p in parts}

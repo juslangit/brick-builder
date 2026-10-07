@@ -24,6 +24,8 @@ export class Viewer {
     this.settings = settings;
     this.container = container;
     this.tweens = [];
+    this.printGeo = new Map(); // printed parts, per colour (geoFor / matFor)
+    this.printMat = new Map();
 
     const r = (this.renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: false }));
     r.setPixelRatio(Math.min(devicePixelRatio, settings.quality === 'fast' ? 1 : 2));
@@ -94,6 +96,44 @@ export class Viewer {
     this.heldGlow = new THREE.Color('#ffd400');
   }
 
+  /** The geometry for a part in a colour: printed parts get their print colours baked in. */
+  geoFor(type, color) {
+    const g = this.set.geometries[type];
+    if (!g.userData.printed) return g;
+    const key = `${type}|${color}`;
+    if (!this.printGeo.has(key)) {
+      const c = g.clone();
+      const pr = g.getAttribute('print');
+      const base = new THREE.Color(this.set.colors[color]?.rgb ?? '#888888');
+      const tmp = new THREE.Color();
+      const arr = new Float32Array(pr.count * 3);
+      for (let i = 0; i < pr.count; i++) {
+        const col = pr.getW(i) === 0 ? base : tmp.setRGB(pr.getX(i) / 255, pr.getY(i) / 255, pr.getZ(i) / 255, THREE.SRGBColorSpace);
+        arr[i * 3] = col.r;
+        arr[i * 3 + 1] = col.g;
+        arr[i * 3 + 2] = col.b;
+      }
+      c.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+      this.printGeo.set(key, c);
+    }
+    return this.printGeo.get(key);
+  }
+
+  /** The material for a part: printed parts take their colours from the geometry. */
+  matFor(type, color, kind = 'solid') {
+    const base = (kind === 'inst' ? this.instMat : this.solidMat)[color];
+    if (!this.set.geometries[type].userData.printed) return base;
+    const key = `${kind}|${color}`;
+    if (!this.printMat.has(key)) {
+      const m = base.clone();
+      m.color.set('#ffffff');
+      m.vertexColors = true;
+      m.userData.base = base.userData.base;
+      this.printMat.set(key, m);
+    }
+    return this.printMat.get(key);
+  }
+
   buildModel() {
     const { parts, geometries, stepOf } = this.set;
     const groups = new Map();
@@ -108,7 +148,7 @@ export class Viewer {
     for (const [key, ids] of groups) {
       ids.sort((a, b) => stepOf[a] - stepOf[b]);
       const [type, color] = key.split('|');
-      const mesh = new THREE.InstancedMesh(geometries[type], this.instMat[color], ids.length);
+      const mesh = new THREE.InstancedMesh(this.geoFor(+type, +color), this.matFor(+type, +color, 'inst'), ids.length);
       ids.forEach((id, i) => mesh.setMatrixAt(i, parts[id].matrix));
       mesh.computeBoundingSphere();
       mesh.computeBoundingBox();
@@ -186,7 +226,9 @@ export class Viewer {
 
   makeMesh(id, material) {
     const p = this.set.parts[id];
-    const mesh = new THREE.Mesh(this.set.geometries[p.type], material ?? this.solidMat[p.color]);
+    const mesh = material
+      ? new THREE.Mesh(this.set.geometries[p.type], material)
+      : new THREE.Mesh(this.geoFor(p.type, p.color), this.matFor(p.type, p.color));
     mesh.matrixAutoUpdate = false;
     mesh.matrix.copy(p.matrix);
     mesh.userData.id = id;
@@ -232,7 +274,8 @@ export class Viewer {
     const mat = mesh.material.clone();
     mesh.material = mat;
     mat.emissive = new THREE.Color('#ffd400');
-    this.tween(500, (t) => (mat.emissiveIntensity = 0.8 * (1 - t)), 0, () => (mesh.material = this.solidMat[this.set.parts[id].color]));
+    const p = this.set.parts[id];
+    this.tween(500, (t) => (mat.emissiveIntensity = 0.8 * (1 - t)), 0, () => (mesh.material = this.matFor(p.type, p.color)));
   }
 
   setGhosts(ids) {
@@ -257,10 +300,10 @@ export class Viewer {
     if (this.held) this.scene.remove(this.held);
     this.held = null;
     if (type == null) return;
-    const mat = this.solidMat[color].clone();
+    const mat = this.matFor(type, color).clone();
     mat.emissive = this.heldGlow.clone();
     mat.emissiveIntensity = 0;
-    this.held = new THREE.Mesh(this.set.geometries[type], mat);
+    this.held = new THREE.Mesh(this.geoFor(type, color), mat);
     this.held.matrixAutoUpdate = false;
     this.held.renderOrder = 3;
     this.scene.add(this.held);
@@ -365,7 +408,7 @@ export class Viewer {
       this.thumbCam = new THREE.PerspectiveCamera(25, 1, 1, 5000);
     }
     const geo = this.set.geometries[type];
-    const mesh = new THREE.Mesh(geo, this.solidMat[color]);
+    const mesh = new THREE.Mesh(this.geoFor(type, color), this.matFor(type, color));
     this.thumbScene.add(mesh);
     const s = geo.boundingSphere;
     const dist = (s.radius * 1.15) / Math.sin((this.thumbCam.fov * Math.PI) / 360);

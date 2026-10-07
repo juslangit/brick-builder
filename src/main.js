@@ -390,7 +390,7 @@ function addFreePart(type, color, matrix) {
 function renderFreeParts() {
   viewer.freeLayer.clear();
   progress.free.forEach((f, i) => {
-    const mesh = new THREE.Mesh(set.geometries[f.t], viewer.solidMat[f.c]);
+    const mesh = new THREE.Mesh(viewer.geoFor(f.t, f.c), viewer.matFor(f.t, f.c));
     mesh.matrixAutoUpdate = false;
     mesh.matrix.fromArray(f.m);
     mesh.userData.free = i;
